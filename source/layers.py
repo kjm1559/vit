@@ -1,5 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Dense, TimeDistributed, Flatten, LayerNormalization, Conv2D, Flatten, Reshape, Permute
+from tensorflow.keras.layers import Dense, LayerNormalization, Reshape, Permute, Dropout
 from tensorflow.keras.activations import softmax, linear
 import tensorflow.keras.backend as K
 import numpy as np
@@ -21,6 +21,7 @@ class multiHeadAttentionLayer(tf.keras.layers.Layer):
         self.permute = Permute((2, 1, 3))
         self.re1 = Reshape((-1, self.head, d_model//self.head))
         self.re2 = Reshape((-1, d_model))
+        self.linear = Dense(d_model)
                            
 
     def call(self, x, training):
@@ -32,8 +33,9 @@ class multiHeadAttentionLayer(tf.keras.layers.Layer):
         
         # combine head
         head = scaledDotProductAttentionLayer()([q_s, k_s, v_s], training)
-        head = self.re2(self.permute(head))
-        multi_head = linear(head)
+        scaled_attention = self.permute(head)
+        concat_attention = self.re2(self.permute(scaled_attention))
+        multi_head = self.linear(concat_attention)
         return multi_head
 
 class mlpLayer(tf.keras.layers.Layer):
@@ -46,38 +48,41 @@ class mlpLayer(tf.keras.layers.Layer):
         return self.d2(x)
 
 class transformerBlock(tf.keras.layers.Layer):
-    def __init__(self, d_model, h_dim=128):
+    def __init__(self, d_model, h_dim=256):
         super(transformerBlock, self).__init__()
         self.q_d = Dense(d_model)
         self.k_d = Dense(d_model)
         self.v_d = Dense(d_model)
-        self.ln1 = LayerNormalization()
-        self.ln2 = LayerNormalization()
+        self.ln1 = LayerNormalization(epsilon=1e-6)
+        self.ln2 = LayerNormalization(epsilon=1e-6)
         self.mlp = mlpLayer(h_dim, d_model)
         self.att = multiHeadAttentionLayer(d_model)
+        
+        self.drop = Dropout(0.1)
     
     def call(self, x, training):
-        y = self.ln1(x)
-
         # multi head attention
-        q = self.q_d(y) # query 
-        k = self.k_d(y) # key
-        v = self.v_d(y) # value
+        q = self.q_d(x) # query 
+        k = self.k_d(x) # key
+        v = self.v_d(x) # value
         y = self.att([q, k, v], training)
+        y = self.drop(y)
 
         # skip connection
         x = x + y
+        y = self.ln1(x)
 
         # MLP layer
-        y = self.ln2(x)
         y = self.mlp(y, training)
-
+        
         # skip connection
-        return x + y        
+        self.drop(y)
+        y = self.ln2(x + y)
+        return y
 
     
 class visionTransformerLayer(tf.keras.layers.Layer):
-    def __init__(self, image_size, patch_size, d_model=64, layer_num=8):
+    def __init__(self, image_size, patch_size, d_model=64, layer_num=15):
         super(visionTransformerLayer, self).__init__()
         self.num_patches = (image_size // patch_size) ** 2
         self.d_model = d_model
