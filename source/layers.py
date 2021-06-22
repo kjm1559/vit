@@ -15,7 +15,7 @@ class scaledDotProductAttentionLayer(tf.keras.layers.Layer):
     
 
 class multiHeadAttentionLayer(tf.keras.layers.Layer):
-    def __init__(self, d_model, head=4):
+    def __init__(self, d_model, head=8):
         super(multiHeadAttentionLayer, self).__init__()
         self.head = head
         self.permute = Permute((2, 1, 3))
@@ -41,8 +41,8 @@ class multiHeadAttentionLayer(tf.keras.layers.Layer):
 class mlpLayer(tf.keras.layers.Layer):
     def __init__(self, hidden_dim, output_dim):
         super(mlpLayer, self).__init__()
-        self.d1 = Dense(hidden_dim, activation=gelu)
-        self.d2 = Dense(output_dim)
+        self.d1 = Dense(hidden_dim, activation=gelu)#, kernel_regularizer=tf.keras.regularizers.l2(0.1))
+        self.d2 = Dense(output_dim)#, kernel_regularizer=tf.keras.regularizers.l2(0.1))
     def call(self, x, training):
         x = self.d1(x)
         return self.d2(x)
@@ -82,10 +82,11 @@ class transformerBlock(tf.keras.layers.Layer):
 
     
 class visionTransformerLayer(tf.keras.layers.Layer):
-    def __init__(self, image_size, patch_size, d_model=64, layer_num=15):
+    def __init__(self, image_size, patch_size, d_model=128, layer_num=12):
         super(visionTransformerLayer, self).__init__()
         self.num_patches = (image_size // patch_size) ** 2
         self.d_model = d_model
+        self.image_size = image_size
         self.patch_size = patch_size
         self.layer_num = layer_num
         
@@ -105,6 +106,11 @@ class visionTransformerLayer(tf.keras.layers.Layer):
     def call(self, x, training):
         # feature extraction
         batch_size = tf.shape(x)[0]
+        
+        # resize image
+        x = tf.image.resize(x, [self.image_size, self.image_size])
+        
+        # extract patch
         patches = tf.image.extract_patches(
             images=x,
             sizes=[1, self.patch_size, self.patch_size, 1],
@@ -127,7 +133,7 @@ class visionTransformerLayer(tf.keras.layers.Layer):
         return x
         
 
-def visionTransformer(input_dim, output_dim, image_size=32, patch_size=4):
+def visionTransformer(input_dim, output_dim, image_size=128, patch_size=16):
     inputs = tf.keras.Input(shape=input_dim)
     y = visionTransformerLayer(image_size, patch_size)(inputs)
     print('y :', y.shape)
